@@ -277,13 +277,10 @@ export class Orchestrator {
     let log: WriteStream | undefined;
 
     try {
-      // The note file is excluded from the dirty check: agentrun rewrites it
-      // itself as tasks complete, so an edited note file is expected.
       const worktree = await createWorktree(
         this.#config.projectPath,
         task.id,
         this.#config.baseBranch,
-        [this.#config.noteFile],
       );
       worktreePath = worktree.path;
       task.worktreePath = worktree.path;

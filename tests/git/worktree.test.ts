@@ -41,13 +41,26 @@ describe('guards', () => {
     await expect(listWorktrees(dir)).rejects.toThrow(NotARepositoryError);
   });
 
-  it('refuses when the base branch working tree is dirty', async () => {
+  it('refuses when a tracked file has uncommitted changes', async () => {
     const repo = await newRepo();
-    await writeFile(join(repo, 'dirty.txt'), 'uncommitted\n', 'utf8');
+    // README.md is committed by the fixture, so editing it is real work at risk.
+    await writeFile(join(repo, 'README.md'), '# edited but not committed\n', 'utf8');
 
     await expect(createWorktree(repo, 'a', 'main')).rejects.toThrow(DirtyWorkingTreeError);
     // No worktree should have been created.
     expect(existsSync(worktreePathFor(repo, 'a'))).toBe(false);
+  });
+
+  it('allows untracked files — they have no committed state to lose', async () => {
+    const repo = await newRepo();
+    // This is the state a fresh `agentrun init` leaves behind.
+    await writeFile(join(repo, 'tasks.md'), 'Do the thing\n', 'utf8');
+    await writeFile(join(repo, 'agentrun.config.json'), '{}', 'utf8');
+    await writeFile(join(repo, '.gitignore'), '.agentrun/\n', 'utf8');
+
+    await expect(createWorktree(repo, 'a', 'main')).resolves.toMatchObject({
+      branch: 'agent/a',
+    });
   });
 
   it('refuses when the agent branch already exists', async () => {
@@ -130,13 +143,21 @@ describe('isolation', () => {
 });
 
 describe('hasChanges', () => {
-  it('is false for a clean worktree and true once a file is written', async () => {
+  it('is false for a clean worktree and true once a tracked file changes', async () => {
     const repo = await newRepo();
     const { path } = await createWorktree(repo, 'a', 'main');
 
     expect(await hasChanges(path)).toBe(false);
-    await writeFile(join(path, 'new.txt'), 'x\n', 'utf8');
+    await writeFile(join(path, 'README.md'), '# changed\n', 'utf8');
     expect(await hasChanges(path)).toBe(true);
+  });
+
+  it('ignores untracked files', async () => {
+    const repo = await newRepo();
+    const { path } = await createWorktree(repo, 'a', 'main');
+
+    await writeFile(join(path, 'brand-new.txt'), 'x\n', 'utf8');
+    expect(await hasChanges(path)).toBe(false);
   });
 });
 

@@ -68,22 +68,18 @@ export async function assertRepo(repo: string): Promise<void> {
 }
 
 /**
- * True when `git status --porcelain` reports anything at all.
+ * True when the working tree has uncommitted changes to *tracked* files.
  *
- * `.agentrun/` is always excluded: it holds agentrun's own worktrees, database
- * and logs. Creating the first worktree would otherwise make the repo look
- * dirty and block the second. `agentrun init` gitignores it, but a project that
- * has not run init yet must still work.
- *
- * Callers pass `exclude` for the note file, which agentrun edits itself as
- * tasks complete — an in-progress note file is normal, not a dirty tree.
+ * Untracked files are deliberately not counted. The guard exists to stop an
+ * agent branching from work that is not committed anywhere; an untracked file
+ * has no committed state to lose, and `git worktree add` does not touch it. The
+ * tool's own first-run files — `.gitignore`, `agentrun.config.json`, the note
+ * file, `.agentrun/` — are all untracked, and treating them as dirty made the
+ * documented `init` then `run` flow fail in a fresh repository.
  */
-export async function hasChanges(
-  worktreePath: string,
-  exclude: readonly string[] = [],
-): Promise<boolean> {
-  const pathspecs = ['.', ':(exclude).agentrun', ...exclude.map((p) => `:(exclude)${p}`)];
-  const stdout = await git(worktreePath, ['status', '--porcelain', '--', ...pathspecs]);
+export async function hasChanges(worktreePath: string): Promise<boolean> {
+  // -uno: report modifications to tracked files only.
+  const stdout = await git(worktreePath, ['status', '--porcelain', '-uno']);
   return stdout.trim() !== '';
 }
 
@@ -130,13 +126,12 @@ export async function createWorktree(
   repo: string,
   taskId: string,
   baseBranch: string,
-  ignoreDirty: readonly string[] = [],
 ): Promise<WorktreeInfo> {
   await assertRepo(repo);
 
   // A dirty base checkout means the agent would branch from a state that is
   // not committed anywhere — refuse rather than silently losing the work.
-  if (await hasChanges(repo, ignoreDirty)) {
+  if (await hasChanges(repo)) {
     throw new DirtyWorkingTreeError(repo);
   }
 
@@ -189,9 +184,17 @@ export async function removeWorktree(
   }
 }
 
-/** Stage everything in a worktree and commit. Returns false if nothing changed. */
+/**
+ * Stage everything in a worktree and commit. Returns false if nothing changed.
+ *
+ * NOTE: this checks the raw status rather than hasChanges — inside an agent's
+ * worktree every change is the agent's work, and `add -A` would stage it
+ * regardless, so an exclusion here would only make the "nothing changed" answer
+ * disagree with what actually gets committed.
+ */
 export async function commitAll(worktreePath: string, message: string): Promise<boolean> {
-  if (!(await hasChanges(worktreePath))) return false;
+  const status = await git(worktreePath, ['status', '--porcelain']);
+  if (status.trim() === '') return false;
 
   await git(worktreePath, ['add', '-A']);
   // NOTE: -c overrides identity for this commit only, so agentrun works in a

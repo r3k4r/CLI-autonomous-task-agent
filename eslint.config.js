@@ -32,8 +32,11 @@ export default tseslint.config(
     rules: { 'no-restricted-syntax': 'off' },
   },
   {
+    // No console.log in src/ — diagnostics go through the pino logger. The
+    // exceptions are the two modules whose whole job is user-facing terminal
+    // output: the ink TUI, and the CLI's print helpers.
     files: ['src/**/*.ts', 'src/**/*.tsx'],
-    ignores: ['src/cli/tui.tsx'],
+    ignores: ['src/cli/tui.tsx', 'src/cli/output.ts'],
     rules: {
       'no-console': 'error',
     },
