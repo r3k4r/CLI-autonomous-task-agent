@@ -18,7 +18,17 @@ export interface ProviderOptions {
 
 type ProviderFactory = (options: ProviderOptions) => Provider | Promise<Provider>;
 
-const factories = new Map<string, ProviderFactory>([['mock', () => new MockProvider()]]);
+const factories = new Map<string, ProviderFactory>([
+  ['mock', () => new MockProvider()],
+  [
+    'claude-code',
+    async (options) => {
+      // Imported lazily so choosing `mock` never loads the real agent adapter.
+      const { ClaudeCodeProvider } = await import('./claudeCode.js');
+      return new ClaudeCodeProvider(options);
+    },
+  ],
+]);
 
 /** Register a provider implementation under a name. */
 export function registerProvider(name: string, factory: ProviderFactory): void {
