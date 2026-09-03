@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.bun/
+coverage/
+.agentrun/
+*.log
+.DS_Store
