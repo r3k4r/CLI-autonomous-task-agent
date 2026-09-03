@@ -24,21 +24,21 @@ Read this section before writing any code.
 
 ## Tech stack (pinned — do not substitute)
 
-| Concern | Choice | Needed by |
-|---|---|---|
-| Runtime | Node 20+ | core |
-| Language | TypeScript, strict mode, ESM | core |
-| Package manager | bun | core |
-| Build | tsup | core |
-| CLI framework | commander | core |
-| Terminal UI | ink | Phase 6 |
-| Child processes | execa | core |
-| State | better-sqlite3 | core |
-| Validation | zod | core |
-| Logging | pino | core |
-| HTTP server | hono | **optional**, Phase 9 |
-| Telegram | grammy | **optional**, Phase 10 |
-| Tests | vitest | core |
+| Concern         | Choice                       | Needed by              |
+| --------------- | ---------------------------- | ---------------------- |
+| Runtime         | Node 20+                     | core                   |
+| Language        | TypeScript, strict mode, ESM | core                   |
+| Package manager | bun                          | core                   |
+| Build           | tsup                         | core                   |
+| CLI framework   | commander                    | core                   |
+| Terminal UI     | ink                          | Phase 6                |
+| Child processes | execa                        | core                   |
+| State           | better-sqlite3               | core                   |
+| Validation      | zod                          | core                   |
+| Logging         | pino                         | core                   |
+| HTTP server     | hono                         | **optional**, Phase 9  |
+| Telegram        | grammy                       | **optional**, Phase 10 |
+| Tests           | vitest                       | core                   |
 
 Install `hono` and `grammy` as **optionalDependencies**. The core must build and run with them absent.
 
@@ -95,13 +95,13 @@ Fix the auth bug
 
 Tags can appear anywhere on a task line and are stripped from the title:
 
-| Tag | Meaning |
-|---|---|
-| `#id:login` | explicit id (otherwise the title is slugified) |
-| `#needs:login` or `#needs:a,b` | dependencies |
-| `#model:opus` | model hint for the provider |
-| `#skip` | parse it but never run it |
-| `#done` | already complete |
+| Tag                            | Meaning                                        |
+| ------------------------------ | ---------------------------------------------- |
+| `#id:login`                    | explicit id (otherwise the title is slugified) |
+| `#needs:login` or `#needs:a,b` | dependencies                                   |
+| `#model:opus`                  | model hint for the provider                    |
+| `#skip`                        | parse it but never run it                      |
+| `#done`                        | already complete                               |
 
 Tags are a power feature. A file with zero tags must work perfectly.
 
@@ -122,45 +122,45 @@ Both re-parse as complete, so the file survives round trips. Config option `writ
 
 ```ts
 export type TaskStatus =
-  | 'pending'    // not started
-  | 'blocked'    // a dependency failed, will never run
-  | 'running'    // an agent is working on it
-  | 'verifying'  // agent finished, running checks
-  | 'done'       // verified successfully
-  | 'failed'     // agent or verification failed
-  | 'skipped'    // #skip tag
+  | 'pending' // not started
+  | 'blocked' // a dependency failed, will never run
+  | 'running' // an agent is working on it
+  | 'verifying' // agent finished, running checks
+  | 'done' // verified successfully
+  | 'failed' // agent or verification failed
+  | 'skipped' // #skip tag
   | 'cancelled';
 
 export type LineStyle = 'checkbox' | 'bullet' | 'numbered' | 'todo' | 'plain';
 
 export interface Task {
   id: string;
-  title: string;           // markers and tags stripped
-  details: string[];       // indented continuation lines
+  title: string; // markers and tags stripped
+  details: string[]; // indented continuation lines
   status: TaskStatus;
   dependsOn: string[];
   model?: string;
   attempts: number;
-  maxAttempts: number;     // default 2
-  branch?: string;         // agent/<id>
+  maxAttempts: number; // default 2
+  branch?: string; // agent/<id>
   worktreePath?: string;
   startedAt?: number;
   finishedAt?: number;
   error?: string;
-  lineNumber: number;      // 0-indexed line in the note file
-  lineStyle: LineStyle;    // how to write completion back
+  lineNumber: number; // 0-indexed line in the note file
+  lineStyle: LineStyle; // how to write completion back
 }
 
 export interface RunConfig {
   projectPath: string;
-  noteFile: string;        // default 'tasks.md'
-  provider: string;        // 'mock' | 'claude-code'
-  parallel: number;        // default 1
-  maxAttempts: number;     // default 2
+  noteFile: string; // default 'tasks.md'
+  provider: string; // 'mock' | 'claude-code'
+  parallel: number; // default 1
+  maxAttempts: number; // default 2
   writeBack: 'auto' | 'none';
-  verifyCommand?: string;  // e.g. 'pnpm test'
+  verifyCommand?: string; // e.g. 'pnpm test'
   buildCommand?: string;
-  baseBranch: string;      // default 'main'
+  baseBranch: string; // default 'main'
 }
 ```
 
@@ -180,6 +180,7 @@ export interface RunConfig {
 - `src/util/errors.ts` with typed error classes.
 
 **Acceptance:**
+
 - `bun run build` produces a working binary.
 - `agentrun --version` prints the version.
 - `bun run typecheck` and `bun run lint` pass with zero errors.
@@ -202,6 +203,7 @@ detectStyle(line: string): LineStyle
 **Acceptance (write all of these tests):**
 
 Parsing:
+
 - Each of the seven line styles above parses to one task with a clean title.
 - A file of nothing but plain sentences, no markers and no tags, parses correctly.
 - Indented lines attach to the preceding task as `details` and never become tasks.
@@ -215,6 +217,7 @@ Parsing:
 - `#skip` yields `status: 'skipped'`.
 
 Writing back:
+
 - `- [ ] Foo` → `- [x] Foo`; every other line in the file is byte-identical.
 - `Foo` → `Foo #done`; every other line byte-identical.
 - CRLF files stay CRLF. Files without a trailing newline don't gain one.
@@ -228,12 +231,14 @@ Writing back:
 **Goal:** persist run state so `agentrun status` works from another terminal and a crash doesn't lose everything.
 
 Implement in `src/core/store.ts` using better-sqlite3 at `.agentrun/state.db`:
+
 - Tables: `runs`, `tasks`, `events`.
 - `createRun(config, tasks)`, `getRun(id)`, `getActiveRun()`, `updateTask(id, patch)`, `appendEvent(taskId, type, message)`, `listTasks(runId)`.
 - All writes synchronous. Enable WAL mode.
 - Agent output goes to files, not the DB: `.agentrun/logs/<runId>/<taskId>.log`.
 
 **Acceptance:**
+
 - Tests use a temp directory, never the real `.agentrun`.
 - State survives closing and reopening the DB.
 - Concurrent writers do not corrupt state (hammer `updateTask` in a loop from multiple handles).
@@ -246,6 +251,7 @@ Implement in `src/core/store.ts` using better-sqlite3 at `.agentrun/state.db`:
 **Goal:** give every agent its own isolated checkout so they can't overwrite each other.
 
 Implement in `src/git/worktree.ts` by calling `git` via execa:
+
 - `createWorktree(repo, taskId, baseBranch)` → `git worktree add <path> -b agent/<taskId> <baseBranch>`, returns `{ path, branch }`. Worktrees live in `.agentrun/worktrees/<taskId>`.
 - `removeWorktree(repo, taskId)` → `git worktree remove --force`, then delete the branch if it has no commits.
 - `listWorktrees(repo)`
@@ -254,12 +260,14 @@ Implement in `src/git/worktree.ts` by calling `git` via execa:
 - `pruneStale(repo)` → `git worktree prune`, plus removes `agent/*` worktrees not in the current run.
 
 **Guards (throw typed errors, and test each one):**
+
 - Refuse if the repo has uncommitted changes on the base branch.
 - Refuse if it isn't a git repository.
 - Refuse if branch `agent/<taskId>` already exists.
 - Never operate on the base branch's working tree.
 
 **Acceptance:**
+
 - Tests create a real temp git repo. Writing a file in worktree A does not appear in worktree B or the base checkout.
 - Cleanup leaves no stray worktrees or branches.
 
@@ -273,12 +281,12 @@ Implement in `src/git/worktree.ts` by calling `git` via execa:
 
 ```ts
 export interface AgentContext {
-  task: Task;                          // includes details[]
+  task: Task; // includes details[]
   worktreePath: string;
   model?: string;
-  previousError?: string;              // set on retries
-  signal: AbortSignal;                 // for `agentrun stop`
-  onOutput: (chunk: string) => void;   // streamed to the log file
+  previousError?: string; // set on retries
+  signal: AbortSignal; // for `agentrun stop`
+  onOutput: (chunk: string) => void; // streamed to the log file
 }
 
 export interface AgentResult {
@@ -296,11 +304,13 @@ export interface Provider {
 ```
 
 `src/providers/mock.ts`:
+
 - Sleeps (default 1500ms), writes `<taskId>.txt` into the worktree, returns success.
 - `MOCK_FAIL_TASKS` env var (comma-separated ids) makes those tasks fail, so retry logic is testable.
 - Respects `signal` and aborts promptly.
 
 **Acceptance:**
+
 - A provider registry maps a name string to an implementation.
 - Mock provider tests cover success, failure, and abort.
 
@@ -317,11 +327,12 @@ class Orchestrator {
   constructor(config: RunConfig, store: Store, provider: Provider);
   start(): Promise<RunSummary>;
   stop(): Promise<void>;
-  on(event: 'taskStart'|'taskEnd'|'taskLog'|'runEnd', handler): void;
+  on(event: 'taskStart' | 'taskEnd' | 'taskLog' | 'runEnd', handler): void;
 }
 ```
 
 Loop behaviour:
+
 1. Build a dependency graph. **Detect cycles and fail fast, naming the cycle.**
 2. A task is runnable when all `dependsOn` are `done`. If any dependency `failed`, mark it `blocked` and never run it.
 3. Run at most `config.parallel` tasks at once.
@@ -331,6 +342,7 @@ Loop behaviour:
 7. On `done`, call `markComplete` to update the note file (unless `writeBack: 'none'`).
 
 **Acceptance (mock provider only — these tests must cost nothing):**
+
 - 5 independent tasks with `parallel: 3` → never more than 3 running, all finish.
 - `a → b → c` runs strictly in order.
 - If `a` fails permanently, `b` (needs `a`) ends `blocked`, not `running`.
@@ -345,22 +357,23 @@ Loop behaviour:
 
 **Goal:** a usable terminal interface. Calls the orchestrator directly — **no daemon, no HTTP**.
 
-| Command | Behaviour |
-|---|---|
-| `agentrun init` | creates the note file, `agentrun.config.json`, adds `.agentrun/` to `.gitignore` |
-| `agentrun add "<title>"` | appends a task in the file's dominant style |
-| `agentrun list` | prints parsed tasks, statuses, and dependencies |
-| `agentrun run [--parallel N] [--provider mock] [--dry-run]` | starts a run |
-| `agentrun status` | current run state (reads SQLite, works from any terminal) |
-| `agentrun logs <taskId> [--follow]` | prints a task's log |
-| `agentrun retry <taskId>` | resets a failed task and runs it |
-| `agentrun stop` | stops the active run |
-| `agentrun clean` | prunes worktrees and branches from finished runs |
+| Command                                                     | Behaviour                                                                        |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `agentrun init`                                             | creates the note file, `agentrun.config.json`, adds `.agentrun/` to `.gitignore` |
+| `agentrun add "<title>"`                                    | appends a task in the file's dominant style                                      |
+| `agentrun list`                                             | prints parsed tasks, statuses, and dependencies                                  |
+| `agentrun run [--parallel N] [--provider mock] [--dry-run]` | starts a run                                                                     |
+| `agentrun status`                                           | current run state (reads SQLite, works from any terminal)                        |
+| `agentrun logs <taskId> [--follow]`                         | prints a task's log                                                              |
+| `agentrun retry <taskId>`                                   | resets a failed task and runs it                                                 |
+| `agentrun stop`                                             | stops the active run                                                             |
+| `agentrun clean`                                            | prunes worktrees and branches from finished runs                                 |
 
 - `--dry-run` prints the execution plan (order, parallel groups, dependencies) and exits without spawning anything. Build this early — it's the fastest way to debug the graph.
 - `run` renders a live ink table. Fall back to plain line output when not a TTY or when `--no-tui` is passed.
 
 **Acceptance:**
+
 - Every command has a test against a temp repo with the mock provider.
 - `--dry-run` never creates a worktree or spawns a process.
 - Non-TTY output has no ANSI escape codes.
@@ -373,6 +386,7 @@ Loop behaviour:
 **Goal:** replace the mock with a real agent.
 
 Implement `src/providers/claudeCode.ts`:
+
 - Spawns `claude` in headless mode with `cwd` set to the task's worktree.
 - Builds the prompt from `task.title`, `task.details`, and `previousError` when retrying.
 - Streams stdout/stderr into `ctx.onOutput`.
@@ -382,17 +396,19 @@ Implement `src/providers/claudeCode.ts`:
 
 ```ts
 const env = { ...process.env };
-delete env.ANTHROPIC_API_KEY;   // force Pro/Max subscription auth
+delete env.ANTHROPIC_API_KEY; // force Pro/Max subscription auth
 ```
 
 Child processes inherit the parent environment. A leaked `ANTHROPIC_API_KEY` silently converts free subscription runs into per-token billing. Strip it unless `config.billing === 'api'`, which must be an explicit opt-in in `agentrun.config.json`.
 
 Also:
+
 - Keep `mock` as the default provider so tests never change.
 - Per-task timeout (default 15 minutes) that aborts a stuck agent.
 - Log the exact spawned command for debuggability.
 
 **Acceptance:**
+
 - Unit tests mock `execa`. No test may ever spawn a real agent.
 - A test asserts `ANTHROPIC_API_KEY` is absent from the child env by default, and present when `billing: 'api'`.
 - A test asserts `task.details` appear in the generated prompt.
@@ -405,18 +421,21 @@ Also:
 **Goal:** stop trusting the agent's own claim of success.
 
 `src/verify/verify.ts`:
+
 - Runs `buildCommand` then `verifyCommand` inside the worktree.
 - Captures output into the task log.
 - Returns `{ passed, output }`. Non-zero exit means failed, whatever the agent said.
 - With no `verifyCommand` configured, mark `done` with `unverified: true`, surfaced in `status`.
 
 `src/git/merge.ts`:
+
 - `agentrun merge [taskId]` merges one agent branch into the base branch.
 - Merge **one at a time**, verifying after each.
 - On conflict: abort, mark the task `failed` with a clear message, keep the branch. **Never auto-resolve.**
 - Stop after the first failure; report which branches remain unmerged.
 
 **Acceptance:**
+
 - A task whose agent "succeeds" but whose tests fail ends `failed`.
 - Two branches touching the same line produce a clean abort, not a broken base branch.
 - The base branch is never left conflicted.
@@ -429,7 +448,7 @@ Everything below is optional. Phases 0–8 give you a working tool: write notes,
 
 ---
 
-### Phase 9 — Daemon and HTTP API *(optional)*
+### Phase 9 — Daemon and HTTP API _(optional)_
 
 **Goal:** separate the engine from the interface so something other than a terminal can drive it.
 
@@ -437,16 +456,16 @@ Only needed if you want Phase 10, a web UI, or to trigger runs from another mach
 
 Implement `src/daemon/server.ts` with hono:
 
-| Method | Route |
-|---|---|
-| POST | `/tasks` |
-| GET | `/tasks` |
-| POST | `/run` |
-| POST | `/stop` |
-| GET | `/status` |
-| GET | `/logs/:taskId` (SSE stream) |
-| POST | `/retry/:taskId` |
-| POST | `/merge/:taskId` |
+| Method | Route                        |
+| ------ | ---------------------------- |
+| POST   | `/tasks`                     |
+| GET    | `/tasks`                     |
+| POST   | `/run`                       |
+| POST   | `/stop`                      |
+| GET    | `/status`                    |
+| GET    | `/logs/:taskId` (SSE stream) |
+| POST   | `/retry/:taskId`             |
+| POST   | `/merge/:taskId`             |
 
 - Bind to `127.0.0.1` only. Never `0.0.0.0`.
 - Bearer token from `.agentrun/token`, generated on first start, chmod 600.
@@ -454,6 +473,7 @@ Implement `src/daemon/server.ts` with hono:
 - `src/daemon/client.ts` wraps these calls. CLI commands use the client **only when a daemon is running**, and otherwise run in-process exactly as before.
 
 **Acceptance:**
+
 - Every route tested with hono's test client.
 - Requests without a valid token get 401.
 - A test asserts the listener is bound to loopback.
@@ -462,7 +482,7 @@ Implement `src/daemon/server.ts` with hono:
 
 ---
 
-### Phase 10 — Telegram bot *(optional, safe to skip forever)*
+### Phase 10 — Telegram bot _(optional, safe to skip forever)_
 
 **Goal:** control runs from a phone.
 
@@ -475,7 +495,7 @@ Implement with grammy using **long polling** — no webhook, no public URL, no o
 ```ts
 const OWNER_ID = Number(process.env.TELEGRAM_OWNER_ID);
 bot.use((ctx, next) => {
-  if (ctx.from?.id !== OWNER_ID) return;  // silent ignore, no reply
+  if (ctx.from?.id !== OWNER_ID) return; // silent ignore, no reply
   return next();
 });
 ```
@@ -485,6 +505,7 @@ This bot can execute arbitrary code on the host machine. Unauthorized users get 
 Commands: `/status`, `/run`, `/stop`, `/add <text>`, `/logs <id>`, `/retry <id>`, `/merge <id>`.
 
 Behaviour:
+
 - `/status` sends one message and then **edits that same message** as tasks progress. Never one message per update.
 - Rate-limit edits to at most one every 3 seconds.
 - Inline keyboard buttons for Retry / Stop / Merge.
@@ -492,6 +513,7 @@ Behaviour:
 - The bot is a client of the HTTP API only. It must not import the orchestrator.
 
 **Acceptance:**
+
 - Tests stub the grammy context. No real Telegram connection in tests.
 - A non-owner user id produces zero API calls.
 - `agentrun bot` exits cleanly with a warning when `TELEGRAM_BOT_TOKEN` is missing.

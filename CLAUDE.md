@@ -59,8 +59,8 @@ The forgiving parser is the core feature. Treat it that way.
 3. **Never run an agent in the base branch's working tree.** Always a worktree.
 4. **Never commit `.agentrun/`, config secrets, or any token file.**
 5. Agent output is untrusted. An agent claiming success does not mean success — only the verify command decides.
-6. *(Phase 9 only)* The daemon binds to `127.0.0.1`. Never `0.0.0.0`.
-7. *(Phase 10 only)* The Telegram bot checks the owner id before anything else. Unauthorized users get silence, not an error.
+6. _(Phase 9 only)_ The daemon binds to `127.0.0.1`. Never `0.0.0.0`.
+7. _(Phase 10 only)_ The Telegram bot checks the owner id before anything else. Unauthorized users get silence, not an error.
 
 ## Commands
 
