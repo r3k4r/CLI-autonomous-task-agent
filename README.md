@@ -85,6 +85,7 @@ blank lines, indentation, comments and line endings are preserved byte for byte.
 | `agentrun logs <taskId>`  | print a task's log                                      |
 | `agentrun retry <taskId>` | reset a failed task and run it again                    |
 | `agentrun stop`           | stop the active run                                     |
+| `agentrun merge [taskId]` | merge agent branches into the base branch               |
 | `agentrun clean`          | prune worktrees and branches from finished runs         |
 
 `run` takes `--parallel N`, `--provider <name>`, `--dry-run`, `--no-tui` and
@@ -132,6 +133,21 @@ opts into per-token charges — it has to be deliberate.
 A failed task retries up to `maxAttempts`, with the previous error included in the
 retry prompt. Anything depending on a permanently failed task is marked `blocked` and
 never runs.
+
+## Merging
+
+```bash
+agentrun merge            # every completed task, one at a time
+agentrun merge login      # just that one
+```
+
+Branches are merged **one at a time**, re-running the verify command after each so a
+merge that breaks the base branch is caught immediately and rolled back.
+
+On a conflict the merge is aborted, the branch is kept, and the task is marked failed.
+**Conflicts are never resolved automatically**, and the base branch is never left in a
+conflicted state. Merging stops at the first failure and tells you which branches were
+not attempted, so one bad merge cannot cascade.
 
 ## Manual smoke test
 

@@ -68,18 +68,36 @@ export async function assertRepo(repo: string): Promise<void> {
 }
 
 /**
- * True when the working tree has uncommitted changes to *tracked* files.
+ * True when the working tree has uncommitted changes to *tracked* files, other
+ * than files agentrun owns.
  *
- * Untracked files are deliberately not counted. The guard exists to stop an
- * agent branching from work that is not committed anywhere; an untracked file
- * has no committed state to lose, and `git worktree add` does not touch it. The
- * tool's own first-run files — `.gitignore`, `agentrun.config.json`, the note
- * file, `.agentrun/` — are all untracked, and treating them as dirty made the
- * documented `init` then `run` flow fail in a fresh repository.
+ * Two exclusions, both learned from running the tool for real:
+ *
+ * - Untracked files do not count. The guard exists to stop an agent branching
+ *   from work that is not committed anywhere; an untracked file has no
+ *   committed state to lose and `git worktree add` does not touch it. On a
+ *   fresh `agentrun init` the note file, config and `.gitignore` are all
+ *   untracked, and counting them made the documented first run impossible.
+ *
+ * - `ignore` names files agentrun writes itself. Once the note file is
+ *   committed — which is the normal thing to do — agentrun's own write-back
+ *   would otherwise block every subsequent run.
  */
-export async function hasChanges(worktreePath: string): Promise<boolean> {
-  // -uno: report modifications to tracked files only.
-  const stdout = await git(worktreePath, ['status', '--porcelain', '-uno']);
+/**
+ * The paths agentrun writes itself, which must never count as the user's
+ * uncommitted work. Pass the configured note file name, which is not fixed.
+ */
+export function agentrunOwnedPaths(noteFile: string): string[] {
+  return [noteFile, 'agentrun.config.json', '.agentrun'];
+}
+
+export async function hasChanges(
+  worktreePath: string,
+  ignore: readonly string[] = [],
+): Promise<boolean> {
+  // -uno: modifications to tracked files only.
+  const pathspecs = ['.', ...ignore.map((path) => `:(exclude)${path}`)];
+  const stdout = await git(worktreePath, ['status', '--porcelain', '-uno', '--', ...pathspecs]);
   return stdout.trim() !== '';
 }
 
@@ -126,12 +144,13 @@ export async function createWorktree(
   repo: string,
   taskId: string,
   baseBranch: string,
+  ignore: readonly string[] = [],
 ): Promise<WorktreeInfo> {
   await assertRepo(repo);
 
   // A dirty base checkout means the agent would branch from a state that is
   // not committed anywhere — refuse rather than silently losing the work.
-  if (await hasChanges(repo)) {
+  if (await hasChanges(repo, ignore)) {
     throw new DirtyWorkingTreeError(repo);
   }
 

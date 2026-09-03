@@ -1,8 +1,10 @@
+import { execa } from 'execa';
 import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  agentrunOwnedPaths,
   branchExists,
   commitAll,
   createWorktree,
@@ -49,6 +51,43 @@ describe('guards', () => {
     await expect(createWorktree(repo, 'a', 'main')).rejects.toThrow(DirtyWorkingTreeError);
     // No worktree should have been created.
     expect(existsSync(worktreePathFor(repo, 'a'))).toBe(false);
+  });
+
+  it('allows a modified note file, which agentrun writes itself', async () => {
+    const repo = await newRepo();
+    // Committing the note file is the normal thing to do.
+    await writeFile(join(repo, 'tasks.md'), 'Do the thing\n', 'utf8');
+    await execa('git', ['add', 'tasks.md'], { cwd: repo });
+    await execa('git', ['commit', '-m', 'add tasks'], { cwd: repo });
+
+    // Now edit it, as a user adding a task or as write-back does.
+    await writeFile(join(repo, 'tasks.md'), 'Do the thing #done\nAnd another\n', 'utf8');
+
+    await expect(createWorktree(repo, 'a', 'main', ['tasks.md'])).resolves.toMatchObject({
+      branch: 'agent/a',
+    });
+  });
+
+  it('still refuses when a tracked file other than the note file is dirty', async () => {
+    const repo = await newRepo();
+    await writeFile(join(repo, 'README.md'), '# real uncommitted work\n', 'utf8');
+
+    await expect(createWorktree(repo, 'a', 'main', ['tasks.md'])).rejects.toThrow(
+      DirtyWorkingTreeError,
+    );
+  });
+
+  it('allows a modified, committed agentrun.config.json', async () => {
+    const repo = await newRepo();
+    await writeFile(join(repo, 'agentrun.config.json'), '{"parallel":1}', 'utf8');
+    await execa('git', ['add', 'agentrun.config.json'], { cwd: repo });
+    await execa('git', ['commit', '-m', 'add config'], { cwd: repo });
+
+    await writeFile(join(repo, 'agentrun.config.json'), '{"parallel":4}', 'utf8');
+
+    await expect(
+      createWorktree(repo, 'a', 'main', agentrunOwnedPaths('tasks.md')),
+    ).resolves.toMatchObject({ branch: 'agent/a' });
   });
 
   it('allows untracked files — they have no committed state to lose', async () => {

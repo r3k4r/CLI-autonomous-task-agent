@@ -8,6 +8,7 @@ import {
   initCommand,
   listCommand,
   logsCommand,
+  mergeCommand,
   retryCommand,
   runCommand,
   statusCommand,
@@ -341,6 +342,87 @@ describe('stop', () => {
     const reader = Store.open(repo);
     expect(reader.getRun('manual-run')?.status).toBe('stopped');
     reader.close();
+  });
+});
+
+describe('verification during a run', () => {
+  it('fails a task whose agent succeeded but whose verify command fails', async () => {
+    const { repo, ctx } = await setup('Build the thing #id:a\n');
+    await writeConfig(repo, { verifyCommand: 'exit 1', maxAttempts: 1 });
+
+    const output = (await runCommand(ctx)).join('\n');
+
+    expect(output).toContain('failed');
+    const store = Store.open(repo);
+    const run = store.getLatestRun()!;
+    expect(store.getTask(run.id, 'a')?.status).toBe('failed');
+    store.close();
+  });
+
+  it('passes a task whose verify command succeeds', async () => {
+    const { repo, ctx } = await setup('Build the thing #id:a\n');
+    await writeConfig(repo, { verifyCommand: 'exit 0' });
+
+    expect((await runCommand(ctx)).join('\n')).toContain('completed');
+  });
+
+  it('does not mark a verification-failed task done in the note file', async () => {
+    const notes = '- [ ] Build the thing #id:a\n';
+    const { repo, ctx } = await setup(notes);
+    await writeConfig(repo, { verifyCommand: 'exit 1', maxAttempts: 1 });
+
+    await runCommand(ctx);
+
+    expect(await readFile(join(repo, 'tasks.md'), 'utf8')).toBe(notes);
+  });
+});
+
+describe('merge', () => {
+  it('merges a completed task branch into the base branch', async () => {
+    const { repo, ctx } = await setup('Build the thing #id:a\n');
+    await writeConfig(repo);
+    await runCommand(ctx);
+
+    const output = (await mergeCommand(ctx)).join('\n');
+
+    expect(output).toContain('merged agent/a');
+    expect(existsSync(join(repo, 'a.txt'))).toBe(true);
+  });
+
+  it('merges just the named task', async () => {
+    const { repo, ctx } = await setup(
+      ['Build the thing #id:a', 'Test the thing #id:b'].join('\n'),
+    );
+    await writeConfig(repo);
+    await runCommand(ctx);
+
+    const output = (await mergeCommand(ctx, 'a')).join('\n');
+
+    expect(output).toContain('agent/a');
+    expect(output).not.toContain('agent/b');
+    expect(existsSync(join(repo, 'b.txt'))).toBe(false);
+  });
+
+  it('reports when there is nothing to merge', async () => {
+    const { repo, ctx } = await setup('Build the thing #id:a\n');
+    await writeConfig(repo, { maxAttempts: 1 });
+
+    process.env.MOCK_FAIL_TASKS = 'a';
+    try {
+      await runCommand(ctx);
+    } finally {
+      delete process.env.MOCK_FAIL_TASKS;
+    }
+
+    expect((await mergeCommand(ctx)).join('')).toContain('no completed tasks');
+  });
+
+  it('rejects an unknown task id', async () => {
+    const { repo, ctx } = await setup('Build the thing #id:a\n');
+    await writeConfig(repo);
+    await runCommand(ctx);
+
+    await expect(mergeCommand(ctx, 'ghost')).rejects.toThrow(TaskNotFoundError);
   });
 });
 

@@ -2,7 +2,12 @@ import { EventEmitter } from 'node:events';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createWriteStream, type WriteStream } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { commitAll, createWorktree, removeWorktree } from '../git/worktree.js';
+import {
+  agentrunOwnedPaths,
+  commitAll,
+  createWorktree,
+  removeWorktree,
+} from '../git/worktree.js';
 import type { Provider } from '../providers/types.js';
 import { logger } from '../util/logger.js';
 import { validateGraph } from './graph.js';
@@ -281,6 +286,7 @@ export class Orchestrator {
         this.#config.projectPath,
         task.id,
         this.#config.baseBranch,
+        agentrunOwnedPaths(this.#config.noteFile),
       );
       worktreePath = worktree.path;
       task.worktreePath = worktree.path;

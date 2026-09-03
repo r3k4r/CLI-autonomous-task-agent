@@ -9,6 +9,7 @@ import {
   initCommand,
   listCommand,
   logsCommand,
+  mergeCommand,
   retryCommand,
   runCommand,
   statusCommand,
@@ -113,6 +114,14 @@ export function buildProgram(): Command {
     .description('stop the active run')
     .action(async () => {
       emit(await stopCommand(context()));
+    });
+
+  program
+    .command('merge')
+    .argument('[taskId]', 'merge one task, or every completed task when omitted')
+    .description('merge agent branches into the base branch, one at a time')
+    .action(async (taskId: string | undefined) => {
+      emit(await mergeCommand(context(), taskId));
     });
 
   program

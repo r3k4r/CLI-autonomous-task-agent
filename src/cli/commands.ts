@@ -184,7 +184,11 @@ export async function runCommand(ctx: CommandContext, options: RunOptions = {}):
       timeoutMs: config.timeoutMs,
       billing: config.billing,
     });
-    const orchestrator = new Orchestrator(config, store, provider);
+    // Real verification: the agent's own claim of success decides nothing.
+    const { makeVerifier } = await import('../verify/verify.js');
+    const orchestrator = new Orchestrator(config, store, provider, {
+      verify: makeVerifier(config),
+    });
 
     // The live table only makes sense on a TTY; everywhere else (pipes, CI,
     // tests) the run prints plain lines and no escape codes.
@@ -340,6 +344,83 @@ export async function stopCommand(ctx: CommandContext): Promise<string[]> {
   } finally {
     store.close();
   }
+}
+
+/**
+ * `agentrun merge [taskId]` — merge agent branches into the base branch, one at
+ * a time, verifying after each. Stops at the first failure.
+ */
+export async function mergeCommand(ctx: CommandContext, taskId?: string): Promise<string[]> {
+  const config = await loadConfig(ctx.projectPath);
+  const store = Store.open(ctx.projectPath);
+
+  let taskIds: string[];
+  try {
+    const run = store.getLatestRun();
+    if (!run) throw new NoActiveRunError();
+
+    if (taskId !== undefined) {
+      const task = store.getTask(run.id, taskId);
+      if (!task) throw new TaskNotFoundError(taskId);
+      taskIds = [taskId];
+    } else {
+      // Only tasks that actually finished have anything worth merging.
+      taskIds = store
+        .listTasks(run.id)
+        .filter((t) => t.status === 'done')
+        .map((t) => t.id);
+    }
+  } finally {
+    store.close();
+  }
+
+  if (taskIds.length === 0) return ['no completed tasks to merge'];
+
+  const { mergeAll } = await import('../git/merge.js');
+  const { verifyTask } = await import('../verify/verify.js');
+
+  const { agentrunOwnedPaths } = await import('../git/worktree.js');
+  const options: Parameters<typeof mergeAll>[3] = {
+    ignore: agentrunOwnedPaths(config.noteFile),
+  };
+  if (config.verifyCommand !== undefined || config.buildCommand !== undefined) {
+    // Verify the merged result, not just each branch in isolation.
+    options.verify = () => verifyTask(config, ctx.projectPath);
+  }
+
+  const report = await mergeAll(ctx.projectPath, taskIds, config.baseBranch, options);
+
+  // A branch that would not merge is a failed task, whatever the agent claimed.
+  if (report.failed.length > 0) {
+    const writer = Store.open(ctx.projectPath);
+    try {
+      const run = writer.getLatestRun();
+      if (run) {
+        for (const outcome of report.failed) {
+          writer.updateTask(run.id, outcome.taskId, {
+            status: 'failed',
+            error: outcome.reason ?? 'merge failed',
+          });
+          writer.appendEvent(run.id, outcome.taskId, 'merge', outcome.reason ?? 'merge failed');
+        }
+      }
+    } finally {
+      writer.close();
+    }
+  }
+
+  const lines: string[] = [];
+  for (const outcome of report.merged) {
+    lines.push(`merged ${outcome.branch}`);
+  }
+  for (const outcome of report.failed) {
+    lines.push(`FAILED ${outcome.branch}: ${outcome.reason ?? 'unknown reason'}`);
+  }
+  if (report.unmerged.length > 0) {
+    lines.push(`not attempted: ${report.unmerged.join(', ')}`);
+  }
+  if (lines.length === 0) lines.push('nothing merged');
+  return lines;
 }
 
 /** `agentrun clean` — prune worktrees and branches from finished runs. */

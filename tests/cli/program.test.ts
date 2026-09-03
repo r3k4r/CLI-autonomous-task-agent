@@ -11,6 +11,7 @@ describe('program wiring', () => {
       'init',
       'list',
       'logs',
+      'merge',
       'retry',
       'run',
       'status',
