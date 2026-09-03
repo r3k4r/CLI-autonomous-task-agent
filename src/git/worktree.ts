@@ -70,19 +70,20 @@ export async function assertRepo(repo: string): Promise<void> {
 /**
  * True when `git status --porcelain` reports anything at all.
  *
- * `.agentrun/` is excluded: it holds agentrun's own worktrees, database and
- * logs. Creating the first worktree would otherwise make the repo look dirty
- * and block the second. `agentrun init` gitignores it, but a project that has
- * not run init yet must still work.
+ * `.agentrun/` is always excluded: it holds agentrun's own worktrees, database
+ * and logs. Creating the first worktree would otherwise make the repo look
+ * dirty and block the second. `agentrun init` gitignores it, but a project that
+ * has not run init yet must still work.
+ *
+ * Callers pass `exclude` for the note file, which agentrun edits itself as
+ * tasks complete — an in-progress note file is normal, not a dirty tree.
  */
-export async function hasChanges(worktreePath: string): Promise<boolean> {
-  const stdout = await git(worktreePath, [
-    'status',
-    '--porcelain',
-    '--',
-    '.',
-    ':(exclude).agentrun',
-  ]);
+export async function hasChanges(
+  worktreePath: string,
+  exclude: readonly string[] = [],
+): Promise<boolean> {
+  const pathspecs = ['.', ':(exclude).agentrun', ...exclude.map((p) => `:(exclude)${p}`)];
+  const stdout = await git(worktreePath, ['status', '--porcelain', '--', ...pathspecs]);
   return stdout.trim() !== '';
 }
 
@@ -129,12 +130,13 @@ export async function createWorktree(
   repo: string,
   taskId: string,
   baseBranch: string,
+  ignoreDirty: readonly string[] = [],
 ): Promise<WorktreeInfo> {
   await assertRepo(repo);
 
   // A dirty base checkout means the agent would branch from a state that is
   // not committed anywhere — refuse rather than silently losing the work.
-  if (await hasChanges(repo)) {
+  if (await hasChanges(repo, ignoreDirty)) {
     throw new DirtyWorkingTreeError(repo);
   }
 

@@ -123,6 +123,13 @@ describe('parseNotes — ignored lines', () => {
     const tasks = parseNotes('- ok\n- A real task here');
     expect(tasks.map((t) => t.title)).toEqual(['A real task here']);
   });
+
+  it('also drops a line left too short once its tags are stripped', () => {
+    // `A #id:a` is one character of title, so it is noise rather than a task.
+    // Worth pinning down: it is surprising when writing terse fixtures.
+    expect(parseNotes('A #id:a')).toEqual([]);
+    expect(parseNotes('Build the thing #id:a')).toHaveLength(1);
+  });
 });
 
 describe('parseNotes — tags', () => {
