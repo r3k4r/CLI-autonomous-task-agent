@@ -1,12 +1,7 @@
 import { execa } from 'execa';
 import { rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import {
-  BranchExistsError,
-  DirtyWorkingTreeError,
-  GitError,
-  NotARepositoryError,
-} from '../util/errors.js';
+import { BranchExistsError, GitError, NotARepositoryError } from '../util/errors.js';
 import { logger } from '../util/logger.js';
 
 /**
@@ -144,22 +139,39 @@ export async function createWorktree(
   repo: string,
   taskId: string,
   baseBranch: string,
-  ignore: readonly string[] = [],
+  _ignore: readonly string[] = [],
 ): Promise<WorktreeInfo> {
   await assertRepo(repo);
 
-  // A dirty base checkout means the agent would branch from a state that is
-  // not committed anywhere — refuse rather than silently losing the work.
-  if (await hasChanges(repo, ignore)) {
-    throw new DirtyWorkingTreeError(repo);
-  }
+  // NOTE: uncommitted changes in the base checkout are deliberately allowed.
+  // `git worktree add` builds a separate checkout from the committed tip of
+  // `baseBranch` and never reads, moves or stages the user's working tree, so
+  // their in-progress edits are untouched and cannot be lost. Refusing here
+  // only forced people to commit work they had not finished reviewing yet.
+  //
+  // The trade-off is deliberate: the agent branches from the last commit, so
+  // it does not see uncommitted work. That is the same isolation every agent
+  // already has from every other agent.
 
   const branch = branchNameFor(taskId);
+  const path = worktreePathFor(repo, taskId);
+
   if (await branchExists(repo, branch)) {
-    throw new BranchExistsError(branch);
+    // A leftover branch from an earlier attempt at this same task. Re-running a
+    // task has to be repeatable, so reclaim it — but only when it holds nothing
+    // that is not already in the base branch. A branch with unmerged commits is
+    // real agent work: refuse and let the user merge or delete it deliberately.
+    if (await hasCommits(repo, branch, baseBranch)) {
+      throw new BranchExistsError(branch);
+    }
+
+    // Drop the stale worktree still holding the branch, then the branch itself.
+    await tryGit(repo, ['worktree', 'remove', '--force', path]);
+    await tryGit(repo, ['worktree', 'prune']);
+    await rm(path, { recursive: true, force: true });
+    await git(repo, ['branch', '-D', branch]);
   }
 
-  const path = worktreePathFor(repo, taskId);
   await git(repo, ['worktree', 'add', path, '-b', branch, baseBranch]);
 
   return { path, branch };

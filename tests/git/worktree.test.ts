@@ -10,16 +10,13 @@ import {
   createWorktree,
   currentBranch,
   hasChanges,
+  hasCommits,
   listWorktrees,
   pruneStale,
   removeWorktree,
   worktreePathFor,
 } from '../../src/git/worktree.js';
-import {
-  BranchExistsError,
-  DirtyWorkingTreeError,
-  NotARepositoryError,
-} from '../../src/util/errors.js';
+import { BranchExistsError, NotARepositoryError } from '../../src/util/errors.js';
 import { gitOutput, makeTempRepo } from '../helpers/repo.js';
 import { makeTempDir, removeTempDir } from '../helpers/temp.js';
 
@@ -43,14 +40,38 @@ describe('guards', () => {
     await expect(listWorktrees(dir)).rejects.toThrow(NotARepositoryError);
   });
 
-  it('refuses when a tracked file has uncommitted changes', async () => {
+  it('runs even when a tracked file has uncommitted changes', async () => {
     const repo = await newRepo();
-    // README.md is committed by the fixture, so editing it is real work at risk.
+    // README.md is committed by the fixture, so editing it is work in progress.
+    // The user must not have to commit it just to run an agent.
     await writeFile(join(repo, 'README.md'), '# edited but not committed\n', 'utf8');
 
-    await expect(createWorktree(repo, 'a', 'main')).rejects.toThrow(DirtyWorkingTreeError);
-    // No worktree should have been created.
-    expect(existsSync(worktreePathFor(repo, 'a'))).toBe(false);
+    await expect(createWorktree(repo, 'a', 'main')).resolves.toMatchObject({
+      branch: 'agent/a',
+    });
+  });
+
+  it('leaves uncommitted work in the base checkout completely untouched', async () => {
+    const repo = await newRepo();
+    const inProgress = '# half-finished work I have not reviewed yet\n';
+    await writeFile(join(repo, 'README.md'), inProgress, 'utf8');
+
+    await createWorktree(repo, 'a', 'main');
+
+    // The whole point: the edit is still there, still uncommitted, unstaged.
+    expect(await readFile(join(repo, 'README.md'), 'utf8')).toBe(inProgress);
+    const { stdout } = await execa('git', ['status', '--porcelain'], { cwd: repo });
+    expect(stdout).toContain('README.md');
+  });
+
+  it('branches the agent from the committed tip, not the dirty tree', async () => {
+    const repo = await newRepo();
+    await writeFile(join(repo, 'README.md'), '# uncommitted\n', 'utf8');
+
+    const { path } = await createWorktree(repo, 'a', 'main');
+
+    // The agent sees the committed state, so uncommitted edits cannot leak in.
+    expect(await readFile(join(path, 'README.md'), 'utf8')).not.toContain('uncommitted');
   });
 
   it('allows a modified note file, which agentrun writes itself', async () => {
@@ -66,15 +87,6 @@ describe('guards', () => {
     await expect(createWorktree(repo, 'a', 'main', ['tasks.md'])).resolves.toMatchObject({
       branch: 'agent/a',
     });
-  });
-
-  it('still refuses when a tracked file other than the note file is dirty', async () => {
-    const repo = await newRepo();
-    await writeFile(join(repo, 'README.md'), '# real uncommitted work\n', 'utf8');
-
-    await expect(createWorktree(repo, 'a', 'main', ['tasks.md'])).rejects.toThrow(
-      DirtyWorkingTreeError,
-    );
   });
 
   it('allows a modified, committed agentrun.config.json', async () => {
@@ -102,11 +114,27 @@ describe('guards', () => {
     });
   });
 
-  it('refuses when the agent branch already exists', async () => {
+  it('reuses a leftover branch that holds no unmerged work', async () => {
     const repo = await newRepo();
     await createWorktree(repo, 'a', 'main');
 
+    // Re-running the same task has to be repeatable rather than dead-ending.
+    await expect(createWorktree(repo, 'a', 'main')).resolves.toMatchObject({
+      branch: 'agent/a',
+    });
+    expect(existsSync(worktreePathFor(repo, 'a'))).toBe(true);
+  });
+
+  it('refuses to destroy a branch that holds unmerged agent work', async () => {
+    const repo = await newRepo();
+    const { path } = await createWorktree(repo, 'a', 'main');
+    await writeFile(join(path, 'agent-work.txt'), 'real work\n', 'utf8');
+    await commitAll(path, 'agent work');
+    await removeWorktree(repo, 'a', 'main');
+
     await expect(createWorktree(repo, 'a', 'main')).rejects.toThrow(BranchExistsError);
+    // The work is still there.
+    expect(await hasCommits(repo, 'agent/a', 'main')).toBe(true);
   });
 
   it('never checks the agent branch out in the base working tree', async () => {

@@ -356,19 +356,27 @@ export async function mergeCommand(ctx: CommandContext, taskId?: string): Promis
 
   let taskIds: string[];
   try {
-    const run = store.getLatestRun();
-    if (!run) throw new NoActiveRunError();
+    const runs = store.listRuns();
+    if (runs.length === 0) throw new NoActiveRunError();
 
     if (taskId !== undefined) {
-      const task = store.getTask(run.id, taskId);
-      if (!task) throw new TaskNotFoundError(taskId);
+      const known = runs.some((run) => store.getTask(run.id, taskId) !== undefined);
+      if (!known) throw new TaskNotFoundError(taskId);
       taskIds = [taskId];
     } else {
-      // Only tasks that actually finished have anything worth merging.
-      taskIds = store
-        .listTasks(run.id)
-        .filter((t) => t.status === 'done')
-        .map((t) => t.id);
+      // Completed work is gathered across every run, newest first, not just the
+      // latest one. Re-running a task that already succeeded starts a new run
+      // that can fail, and that must not strand the finished branch from the
+      // previous run — the branch is the deliverable, whichever run made it.
+      const seen = new Set<string>();
+      taskIds = [];
+      for (const run of runs) {
+        for (const task of store.listTasks(run.id)) {
+          if (task.status !== 'done' || seen.has(task.id)) continue;
+          seen.add(task.id);
+          taskIds.push(task.id);
+        }
+      }
     }
   } finally {
     store.close();

@@ -1,5 +1,5 @@
 import { realpathSync } from 'node:fs';
-import { argv, cwd, exit } from 'node:process';
+import process, { argv, cwd, exit } from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { Command } from 'commander';
 import { AgentrunError } from '../util/errors.js';
@@ -80,6 +80,10 @@ export function buildProgram(): Command {
         if (options.provider !== undefined) runOptions.provider = options.provider;
         if (options.dryRun) runOptions.dryRun = true;
         if (options.tui === false) runOptions.noTui = true;
+        // A run with failed tasks must not report success to the shell.
+        runOptions.onSummary = (summary) => {
+          if (!summary.ok) process.exitCode = 1;
+        };
 
         emit(await runCommand(context({ noColor: options.color === false }), runOptions));
       },
@@ -164,4 +168,8 @@ function isEntryPoint(): boolean {
 
 if (isEntryPoint()) {
   await main(argv);
+  // Everything the CLI promised is done by here. A provider or ink teardown can
+  // still leave a handle open, which would hang the process silently; exiting
+  // explicitly keeps `agentrun run` from outliving its own work.
+  exit(process.exitCode ?? 0);
 }

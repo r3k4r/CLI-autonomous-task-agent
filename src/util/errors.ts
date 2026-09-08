@@ -55,7 +55,8 @@ export class BranchExistsError extends AgentrunError {
   constructor(branch: string) {
     super(
       'GIT_BRANCH_EXISTS',
-      `Branch ${branch} already exists. Run \`agentrun clean\` or delete it manually.`,
+      `Branch ${branch} already holds unmerged agent work, so it was not reused. ` +
+        `Run \`agentrun merge\` to keep that work, or \`git branch -D ${branch}\` to discard it.`,
     );
   }
 }

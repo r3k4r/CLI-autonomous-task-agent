@@ -403,6 +403,23 @@ describe('merge', () => {
     expect(existsSync(join(repo, 'b.txt'))).toBe(false);
   });
 
+  it('still merges work from an earlier run when the latest run failed', async () => {
+    const { repo, ctx } = await setup('Build the thing #id:a\n');
+    await writeConfig(repo, { maxAttempts: 1 });
+
+    // Run once successfully — this is the work that must stay reachable.
+    await runCommand(ctx);
+
+    // Re-running the same task starts a new run that fails, because the branch
+    // from the first run holds unmerged work.
+    await writeFile(join(repo, 'tasks.md'), 'Build the thing #id:a\n', 'utf8');
+    await runCommand(ctx);
+
+    // The finished branch belongs to the older run, but it is still the
+    // deliverable and must not be stranded by the newer failure.
+    expect((await mergeCommand(ctx)).join('\n')).toContain('agent/a');
+  });
+
   it('reports when there is nothing to merge', async () => {
     const { repo, ctx } = await setup('Build the thing #id:a\n');
     await writeConfig(repo, { maxAttempts: 1 });

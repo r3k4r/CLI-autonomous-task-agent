@@ -17,7 +17,7 @@ export function shouldUseTui(noTui: boolean | undefined): boolean {
   return process.stdout.isTTY === true;
 }
 
-type Row = Pick<Task, 'id' | 'title' | 'status'>;
+type Row = Pick<Task, 'id' | 'title' | 'status' | 'error'>;
 
 function colorFor(status: TaskStatus): string {
   switch (status) {
@@ -46,12 +46,14 @@ function RunTable({ orchestrator, initial }: TableProps): React.ReactElement {
   const [summary, setSummary] = useState<RunSummary | undefined>();
 
   useEffect(() => {
-    const patch = (id: string, status: TaskStatus): void => {
-      setRows((current) => current.map((row) => (row.id === id ? { ...row, status } : row)));
+    const patch = (id: string, status: TaskStatus, error?: string): void => {
+      setRows((current) =>
+        current.map((row) => (row.id === id ? { ...row, status, error } : row)),
+      );
     };
 
     orchestrator.on('taskStart', (e) => patch(e.task.id, 'running'));
-    orchestrator.on('taskEnd', (e) => patch(e.task.id, e.status));
+    orchestrator.on('taskEnd', (e) => patch(e.task.id, e.status, e.error));
     orchestrator.on('runEnd', (e) => setSummary(e));
   }, [orchestrator]);
 
@@ -60,10 +62,18 @@ function RunTable({ orchestrator, initial }: TableProps): React.ReactElement {
   return (
     <Box flexDirection="column">
       {rows.map((row) => (
-        <Box key={row.id}>
-          <Text color={colorFor(row.status)}>[{statusSymbol(row.status)}] </Text>
-          <Text>{row.id.padEnd(width)} </Text>
-          <Text dimColor>{row.title}</Text>
+        <Box key={row.id} flexDirection="column">
+          <Box>
+            <Text color={colorFor(row.status)}>[{statusSymbol(row.status)}] </Text>
+            <Text>{row.id.padEnd(width)} </Text>
+            <Text dimColor>{row.title}</Text>
+          </Box>
+          {/* A bare [x] tells the user nothing — always show why it failed. */}
+          {row.error !== undefined && row.error !== '' ? (
+            <Box paddingLeft={4}>
+              <Text color="red">{row.error}</Text>
+            </Box>
+          ) : null}
         </Box>
       ))}
       {summary ? (
@@ -79,7 +89,14 @@ function RunTable({ orchestrator, initial }: TableProps): React.ReactElement {
   );
 }
 
-/** Render the live table for a run and resolve once it has been drawn out. */
+/**
+ * Render the live table for a run and resolve once it has been drawn out.
+ *
+ * NOTE: the `runEnd` subscription is made *before* `render()`. Ink's first
+ * render is synchronous, so subscribing afterwards let a fast run emit `runEnd`
+ * before the listener existed — the promise then never settled and the process
+ * hung, surfacing as "Detected unsettled top-level await".
+ */
 export async function renderRun(orchestrator: Orchestrator, tasks: Task[]): Promise<void> {
   const initial: Row[] = tasks.map((task) => ({
     id: task.id,
@@ -87,15 +104,26 @@ export async function renderRun(orchestrator: Orchestrator, tasks: Task[]): Prom
     status: task.status,
   }));
 
+  let finished = false;
+  let onFinished: (() => void) | undefined;
+  orchestrator.on('runEnd', () => {
+    finished = true;
+    onFinished?.();
+  });
+
   const instance = render(<RunTable orchestrator={orchestrator} initial={initial} />);
+
   await new Promise<void>((resolve) => {
-    orchestrator.on('runEnd', () => {
-      // Let the final frame paint before tearing the tree down.
+    // Let the final frame paint before tearing the tree down.
+    const teardown = (): void => {
       setTimeout(() => {
         instance.unmount();
         resolve();
       }, 50);
-    });
+    };
+    if (finished) teardown();
+    else onFinished = teardown;
   });
+
   await instance.waitUntilExit();
 }
