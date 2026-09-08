@@ -212,12 +212,18 @@ describe('spawning', () => {
     expect(output.join('')).toContain('claude --print');
   });
 
-  it('passes the abort signal through', async () => {
+  // execa v9 renamed `signal` to `cancelSignal` and rejects the old name at
+  // call time, so asserting the option name is what catches the regression.
+  it('passes the abort signal through as cancelSignal', async () => {
     const controller = new AbortController();
     await new ClaudeCodeProvider().run(makeContext({ signal: controller.signal }));
 
-    const options = execaMock.mock.calls.at(-1)?.[2] as { signal: AbortSignal };
-    expect(options.signal).toBe(controller.signal);
+    const options = execaMock.mock.calls.at(-1)?.[2] as {
+      cancelSignal: AbortSignal;
+      signal?: AbortSignal;
+    };
+    expect(options.cancelSignal).toBe(controller.signal);
+    expect(options.signal).toBeUndefined();
   });
 });
 

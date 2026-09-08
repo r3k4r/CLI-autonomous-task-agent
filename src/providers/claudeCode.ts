@@ -89,7 +89,9 @@ export class ClaudeCodeProvider implements Provider {
         // Not `extendEnv: false` — the agent needs PATH and friends; only the
         // API key is removed, by buildEnv above.
         input: prompt,
-        signal: ctx.signal,
+        // execa v9 renamed `signal` to `cancelSignal`; the old name is rejected
+        // at call time, which failed every run before the agent even spawned.
+        cancelSignal: ctx.signal,
         timeout: this.#timeoutMs,
         reject: false,
         all: true,
