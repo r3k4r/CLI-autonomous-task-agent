@@ -64,6 +64,10 @@ export function buildProgram(): Command {
     .description('run the tasks in the note file')
     .option('-p, --parallel <n>', 'how many agents to run at once', (value) => Number(value))
     .option('--provider <name>', "which agent to use ('mock' or 'claude-code')")
+    .option(
+      '--mode <mode>',
+      "'worktree' (isolated branch per task) or 'workspace' (edit this checkout, leave changes uncommitted)",
+    )
     .option('--dry-run', 'print the execution plan and exit without spawning anything')
     .option('--no-tui', 'plain line output instead of the live table')
     .option('--no-color', 'disable colour output')
@@ -71,6 +75,7 @@ export function buildProgram(): Command {
       async (options: {
         parallel?: number;
         provider?: string;
+        mode?: string;
         dryRun?: boolean;
         tui?: boolean;
         color?: boolean;
@@ -78,6 +83,7 @@ export function buildProgram(): Command {
         const runOptions: Parameters<typeof runCommand>[1] = {};
         if (options.parallel !== undefined) runOptions.parallel = options.parallel;
         if (options.provider !== undefined) runOptions.provider = options.provider;
+        if (options.mode !== undefined) runOptions.mode = options.mode;
         if (options.dryRun) runOptions.dryRun = true;
         if (options.tui === false) runOptions.noTui = true;
         // A run with failed tasks must not report success to the shell.

@@ -27,6 +27,7 @@ interface SetupOptions {
   delayMs?: number;
   writeBack?: 'auto' | 'none';
   verify?: Verifier;
+  mode?: 'worktree' | 'workspace';
 }
 
 async function setup(options: SetupOptions): Promise<{
@@ -49,6 +50,7 @@ async function setup(options: SetupOptions): Promise<{
     parallel: options.parallel ?? 1,
     maxAttempts: options.maxAttempts ?? 2,
     writeBack: options.writeBack ?? 'auto',
+    mode: options.mode ?? 'worktree',
   });
 
   const provider = new MockProvider({
@@ -430,5 +432,115 @@ describe('state and logs', () => {
     const log = await readFile(join(repo, '.agentrun', 'logs', 'test-run', 'a.log'), 'utf8');
     expect(log).toContain('use the Button component');
     expect(log).toContain('redirect to /dashboard');
+  });
+});
+
+describe('workspace mode', () => {
+  it('edits the project checkout itself rather than a worktree', async () => {
+    const { repo, orchestrator } = await setup({
+      notes: 'Build the thing #id:a\n',
+      mode: 'workspace',
+    });
+
+    const summary = await orchestrator.start();
+
+    expect(summary.done).toEqual(['a']);
+    // The mock writes <taskId>.txt wherever it is run.
+    expect(existsSync(join(repo, 'a.txt'))).toBe(true);
+  });
+
+  it('leaves the changes uncommitted for review', async () => {
+    const { repo, orchestrator } = await setup({
+      notes: 'Build the thing #id:a\n',
+      mode: 'workspace',
+    });
+
+    await orchestrator.start();
+
+    // The whole point: nothing is committed, so the user decides.
+    const status = await gitOutput(repo, ['status', '--porcelain']);
+    expect(status).toContain('a.txt');
+    const log = await gitOutput(repo, ['log', '--oneline']);
+    expect(log).not.toContain('agentrun:');
+  });
+
+  it('creates no agent branch and no worktree', async () => {
+    const { repo, orchestrator } = await setup({
+      notes: 'Build the thing #id:a\n',
+      mode: 'workspace',
+    });
+
+    await orchestrator.start();
+
+    const branches = await gitOutput(repo, ['branch', '--list', 'agent/*']);
+    expect(branches.trim()).toBe('');
+    expect(await listWorktrees(repo)).toHaveLength(1);
+  });
+
+  it('lets a later task see what an earlier one changed', async () => {
+    const { repo, orchestrator } = await setup({
+      notes: ['First task #id:a', 'Second task #id:b #needs:a'].join('\n'),
+      mode: 'workspace',
+    });
+
+    await orchestrator.start();
+
+    // Task b ran in the same tree, so a's file was already there for it.
+    expect(existsSync(join(repo, 'a.txt'))).toBe(true);
+    expect(existsSync(join(repo, 'b.txt'))).toBe(true);
+  });
+
+  it('reports which files each task changed', async () => {
+    const { orchestrator } = await setup({
+      notes: ['First task #id:a', 'Second task #id:b #needs:a'].join('\n'),
+      mode: 'workspace',
+    });
+
+    const summary = await orchestrator.start();
+
+    // Each task is credited with its own file, not the whole accumulated pile.
+    expect(summary.changed).toEqual([
+      { taskId: 'a', files: ['a.txt'] },
+      { taskId: 'b', files: ['b.txt'] },
+    ]);
+  });
+
+  it('does not attribute the note file to a task', async () => {
+    const { orchestrator } = await setup({
+      notes: 'Build the thing #id:a\n',
+      mode: 'workspace',
+    });
+
+    const summary = await orchestrator.start();
+
+    // write-back edits tasks.md; that is agentrun's own doing, not the agent's.
+    expect(summary.changed[0]?.files).not.toContain('tasks.md');
+  });
+
+  it('runs even when the working tree already has uncommitted changes', async () => {
+    const { repo, orchestrator } = await setup({
+      notes: 'Build the thing #id:a\n',
+      mode: 'workspace',
+    });
+    const mine = '# work in progress I have not reviewed\n';
+    await writeFile(join(repo, 'README.md'), mine, 'utf8');
+
+    const summary = await orchestrator.start();
+
+    expect(summary.done).toEqual(['a']);
+    // The user's own edit is untouched and still uncommitted.
+    expect(await readFile(join(repo, 'README.md'), 'utf8')).toBe(mine);
+  });
+
+  it('does not credit a task with edits that were already there', async () => {
+    const { repo, orchestrator } = await setup({
+      notes: 'Build the thing #id:a\n',
+      mode: 'workspace',
+    });
+    await writeFile(join(repo, 'README.md'), '# edited before the run\n', 'utf8');
+
+    const summary = await orchestrator.start();
+
+    expect(summary.changed[0]?.files).toEqual(['a.txt']);
   });
 });

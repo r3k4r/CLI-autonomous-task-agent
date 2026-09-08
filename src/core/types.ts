@@ -21,12 +21,25 @@ export interface Task {
   maxAttempts: number; // default 2
   branch?: string; // agent/<id>
   worktreePath?: string;
+  files?: string[]; // workspace mode: paths this task changed
   startedAt?: number;
   finishedAt?: number;
   error?: string;
   lineNumber: number; // 0-indexed line in the note file
   lineStyle: LineStyle; // how to write completion back
 }
+
+/**
+ * Where agents do their work.
+ *
+ * - 'worktree': each task gets an isolated checkout on its own `agent/<id>`
+ *   branch. Safe and parallelisable; the work has to be merged afterwards.
+ * - 'workspace': tasks edit the project's own working tree, one after another,
+ *   leaving the changes uncommitted for review. Each task therefore sees what
+ *   the previous one did, which is the point — but it forces `parallel: 1` and
+ *   the changes are not isolated by git.
+ */
+export type WorkMode = 'worktree' | 'workspace';
 
 export interface RunConfig {
   projectPath: string;
@@ -38,4 +51,5 @@ export interface RunConfig {
   verifyCommand?: string; // e.g. 'bun run test'
   buildCommand?: string;
   baseBranch: string; // default 'main'
+  mode: WorkMode; // default 'worktree'
 }

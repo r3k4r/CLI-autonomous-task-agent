@@ -19,6 +19,7 @@ export const DEFAULTS = {
   baseBranch: 'main',
   billing: 'subscription',
   timeoutMs: 15 * 60 * 1000,
+  mode: 'worktree',
 } as const;
 
 const configSchema = z
@@ -37,6 +38,7 @@ const configSchema = z
      */
     billing: z.enum(['subscription', 'api']).optional(),
     timeoutMs: z.number().int().positive().optional(),
+    mode: z.enum(['worktree', 'workspace']).optional(),
   })
   .strict();
 
@@ -96,16 +98,22 @@ export function resolveConfig(
   file: FileConfig,
   overrides: Partial<RunConfig> = {},
 ): ResolvedConfig {
+  const mode = overrides.mode ?? file.mode ?? DEFAULTS.mode;
+
   const resolved: ResolvedConfig = {
     projectPath,
     noteFile: overrides.noteFile ?? file.noteFile ?? DEFAULTS.noteFile,
     provider: overrides.provider ?? file.provider ?? DEFAULTS.provider,
-    parallel: overrides.parallel ?? file.parallel ?? DEFAULTS.parallel,
+    // Agents sharing one working tree would overwrite each other, so workspace
+    // mode is sequential whatever the config says.
+    parallel:
+      mode === 'workspace' ? 1 : (overrides.parallel ?? file.parallel ?? DEFAULTS.parallel),
     maxAttempts: overrides.maxAttempts ?? file.maxAttempts ?? DEFAULTS.maxAttempts,
     writeBack: overrides.writeBack ?? file.writeBack ?? DEFAULTS.writeBack,
     baseBranch: overrides.baseBranch ?? file.baseBranch ?? DEFAULTS.baseBranch,
     billing: file.billing ?? DEFAULTS.billing,
     timeoutMs: file.timeoutMs ?? DEFAULTS.timeoutMs,
+    mode,
   };
 
   const verifyCommand = overrides.verifyCommand ?? file.verifyCommand;

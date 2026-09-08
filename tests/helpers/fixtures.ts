@@ -9,6 +9,7 @@ export function makeConfig(overrides: Partial<RunConfig> = {}): RunConfig {
     maxAttempts: 2,
     writeBack: 'auto',
     baseBranch: 'main',
+    mode: 'worktree',
     ...overrides,
   };
 }

@@ -4,6 +4,7 @@ import { createWriteStream, type WriteStream } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
   agentrunOwnedPaths,
+  changedFiles,
   commitAll,
   createWorktree,
   removeWorktree,
@@ -32,6 +33,8 @@ export interface RunSummary {
   cancelled: string[];
   /** True when every task that could run ended `done`. */
   ok: boolean;
+  /** Workspace mode: which files each task changed, for review afterwards. */
+  changed: Array<{ taskId: string; files: string[] }>;
 }
 
 export interface VerifyResult {
@@ -278,23 +281,33 @@ export class Orchestrator {
     controller: AbortController,
     attempt: number,
   ): Promise<{ status: 'done' | 'failed' | 'cancelled'; error?: string }> {
+    const workspaceMode = this.#config.mode === 'workspace';
     let worktreePath: string | undefined;
     let log: WriteStream | undefined;
 
     try {
-      const worktree = await createWorktree(
-        this.#config.projectPath,
-        task.id,
-        this.#config.baseBranch,
-        agentrunOwnedPaths(this.#config.noteFile),
-      );
-      worktreePath = worktree.path;
-      task.worktreePath = worktree.path;
-      task.branch = worktree.branch;
-      this.#store.updateTask(this.#runId, task.id, {
-        worktreePath: worktree.path,
-        branch: worktree.branch,
-      });
+      // In workspace mode the agent edits the project itself, so each task sees
+      // what the previous one did. Nothing is committed and no branch is made —
+      // the changes stay in the working tree for the user to review.
+      let workDir: string;
+      if (workspaceMode) {
+        workDir = this.#config.projectPath;
+      } else {
+        const worktree = await createWorktree(
+          this.#config.projectPath,
+          task.id,
+          this.#config.baseBranch,
+          agentrunOwnedPaths(this.#config.noteFile),
+        );
+        workDir = worktree.path;
+        worktreePath = worktree.path;
+        task.worktreePath = worktree.path;
+        task.branch = worktree.branch;
+        this.#store.updateTask(this.#runId, task.id, {
+          worktreePath: worktree.path,
+          branch: worktree.branch,
+        });
+      }
 
       log = await this.#openLog(task.id);
       const writeLog = (chunk: string): void => {
@@ -302,9 +315,13 @@ export class Orchestrator {
         this.#emitter.emit('taskLog', { taskId: task.id, chunk } satisfies TaskLogEvent);
       };
 
+      // Which files the task changed, so workspace mode can report them. Taken
+      // before the agent runs so earlier tasks' edits are not attributed to it.
+      const before = workspaceMode ? await changedFiles(workDir) : new Set<string>();
+
       const result = await this.#provider.run({
         task,
-        worktreePath: worktree.path,
+        worktreePath: workDir,
         signal: controller.signal,
         onOutput: writeLog,
         ...(task.model !== undefined ? { model: task.model } : {}),
@@ -322,7 +339,7 @@ export class Orchestrator {
       }
 
       this.#setStatus(task, 'verifying');
-      const verification = await this.#verify(task, worktree.path);
+      const verification = await this.#verify(task, workDir);
       if (verification.output) writeLog(verification.output);
 
       if (!verification.passed) {
@@ -332,7 +349,21 @@ export class Orchestrator {
         };
       }
 
-      await commitAll(worktree.path, `agentrun: ${task.title}`);
+      if (workspaceMode) {
+        // Deliberately no commit: the whole point is that the changes stay
+        // uncommitted in the user's tree for them to review and commit.
+        const after = await changedFiles(workDir);
+        // agentrun writes the note file itself; that is not the agent's work.
+        const owned = new Set(agentrunOwnedPaths(this.#config.noteFile));
+        task.files = [...after]
+          .filter((file) => !before.has(file))
+          .filter((file) => !owned.has(file) && !file.startsWith('.agentrun'))
+          .sort();
+        for (const file of task.files) writeLog(`[agentrun] changed ${file}\n`);
+        return { status: 'done' };
+      }
+
+      await commitAll(workDir, `agentrun: ${task.title}`);
       return { status: 'done' };
     } catch (cause) {
       if (controller.signal.aborted) return { status: 'cancelled', error: 'run stopped' };
@@ -414,6 +445,11 @@ export class Orchestrator {
       skipped: collect('skipped'),
       cancelled: collect('cancelled'),
       ok: false,
+      // Workspace mode leaves everything uncommitted in one pile, so the only
+      // way to tell the tasks apart afterwards is this map.
+      changed: this.#tasks
+        .filter((task) => task.files !== undefined && task.files.length > 0)
+        .map((task) => ({ taskId: task.id, files: task.files ?? [] })),
     };
     summary.ok =
       summary.failed.length === 0 && summary.blocked.length === 0 && summary.cancelled.length === 0;

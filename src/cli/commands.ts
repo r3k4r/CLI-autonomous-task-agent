@@ -1,6 +1,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { CONFIG_FILENAME, loadConfig } from '../core/config.js';
+import { ConfigError } from '../util/errors.js';
 import { executionWaves } from '../core/graph.js';
 import { Orchestrator, type RunSummary } from '../core/orchestrator.js';
 import { addTask, parseNotes } from '../core/parser.js';
@@ -154,6 +155,7 @@ function withStoredStatus(projectPath: string, tasks: Task[]): Task[] {
 export interface RunOptions {
   parallel?: number;
   provider?: string;
+  mode?: string;
   dryRun?: boolean;
   /** Plain line output instead of the live ink table. */
   noTui?: boolean;
@@ -168,6 +170,12 @@ export async function runCommand(ctx: CommandContext, options: RunOptions = {}):
   const overrides: Partial<RunConfig> = {};
   if (options.parallel !== undefined) overrides.parallel = options.parallel;
   if (options.provider !== undefined) overrides.provider = options.provider;
+  if (options.mode !== undefined) {
+    if (options.mode !== 'worktree' && options.mode !== 'workspace') {
+      throw new ConfigError(`Unknown mode '${options.mode}'. Use 'worktree' or 'workspace'.`);
+    }
+    overrides.mode = options.mode;
+  }
 
   const config = await loadConfig(ctx.projectPath, overrides);
   const tasks = parseNotes(await readNotes(ctx.projectPath, config.noteFile));
@@ -250,6 +258,16 @@ function summarise(summary: RunSummary): string[] {
   if (summary.blocked.length > 0) lines.push(`  blocked:   ${summary.blocked.join(', ')}`);
   if (summary.cancelled.length > 0) lines.push(`  cancelled: ${summary.cancelled.join(', ')}`);
   if (summary.skipped.length > 0) lines.push(`  skipped:   ${summary.skipped.join(', ')}`);
+
+  // Workspace mode: everything is one uncommitted pile, so say which task
+  // touched what before the user opens their git client.
+  if (summary.changed.length > 0) {
+    lines.push('', 'changed files (uncommitted, review before committing):');
+    for (const entry of summary.changed) {
+      lines.push(`  ${entry.taskId}`);
+      for (const file of entry.files) lines.push(`    ${file}`);
+    }
+  }
   return lines;
 }
 

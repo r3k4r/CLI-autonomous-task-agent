@@ -1,11 +1,12 @@
 import { execa } from 'execa';
 import { existsSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   agentrunOwnedPaths,
   branchExists,
+  changedFiles,
   commitAll,
   createWorktree,
   currentBranch,
@@ -345,3 +346,31 @@ describe('pruneStale', () => {
     expect(removed.sort()).toEqual(['a', 'b']);
   });
 });
+
+describe('changedFiles', () => {
+  it('is empty for a clean checkout', async () => {
+    const repo = await newRepo();
+    expect(await changedFiles(repo)).toEqual(new Set());
+  });
+
+  it('reports modified tracked files', async () => {
+    const repo = await newRepo();
+    await writeFile(join(repo, 'README.md'), '# changed\n', 'utf8');
+
+    expect(await changedFiles(repo)).toEqual(new Set(['README.md']));
+  });
+
+  it('lists files in a new directory individually, not as one entry', async () => {
+    const repo = await newRepo();
+    // git collapses an untracked directory to 'src/' unless -uall is passed,
+    // which would credit every file in it to a single task.
+    await mkdir(join(repo, 'src', 'utils'), { recursive: true });
+    await writeFile(join(repo, 'src', 'utils', 'greeting.ts'), 'export const a = 1\n', 'utf8');
+    await writeFile(join(repo, 'src', 'utils', 'greetAll.ts'), 'export const b = 2\n', 'utf8');
+
+    const files = await changedFiles(repo);
+
+    expect(files).toEqual(new Set(['src/utils/greeting.ts', 'src/utils/greetAll.ts']));
+    expect(files.has('src/')).toBe(false);
+  });
+})

@@ -96,6 +96,31 @@ export async function hasChanges(
   return stdout.trim() !== '';
 }
 
+/**
+ * The paths git currently reports as changed, including untracked files.
+ *
+ * Used by workspace mode to attribute edits to the task that made them, by
+ * diffing this set before and after each agent runs.
+ */
+export async function changedFiles(cwd: string): Promise<Set<string>> {
+  // -uall lists untracked files individually. Without it git collapses a new
+  // directory into a single 'src/utils/' entry, which would credit one task
+  // with every file any task later added under it.
+  const stdout = await git(cwd, ['status', '--porcelain', '-uall']);
+  const files = new Set<string>();
+
+  for (const line of stdout.split('\n')) {
+    // Porcelain v1: two status columns, a space, then the path.
+    const path = line.slice(3).trim();
+    if (path === '') continue;
+    // Renames read as 'old -> new'; the new name is what exists now.
+    const arrow = path.indexOf(' -> ');
+    files.add(arrow === -1 ? path : path.slice(arrow + 4));
+  }
+
+  return files;
+}
+
 export async function branchExists(repo: string, branch: string): Promise<boolean> {
   const result = await tryGit(repo, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`]);
   return result.exitCode === 0;
